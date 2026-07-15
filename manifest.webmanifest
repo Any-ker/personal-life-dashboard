@@ -1,0 +1,25 @@
+{
+  "name": "个人生活看板",
+  "short_name": "生活看板",
+  "description": "在手机上整理和打卡今日任务、习惯与长期项目。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F5F2EC",
+  "theme_color": "#F5F2EC",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

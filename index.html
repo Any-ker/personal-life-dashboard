@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#F5F2EC">
+  <title>个人生活看板</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="page-shell">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow" id="date-label"></p>
+        <p class="lunar-date" id="lunar-label"></p>
+        <h1>今日生活看板</h1>
+        <div class="greeting" id="greeting" aria-live="polite"></div>
+      </div>
+      <div class="summary" aria-live="polite">
+        <span class="summary-count" id="summary-count">0 / 0</span>
+        <span class="summary-label">今日事项已完成</span>
+        <div class="progress-track" aria-hidden="true"><span id="progress-fill"></span></div>
+      </div>
+    </header>
+
+    <div class="toolbar" aria-label="数据工具">
+      <button class="text-button" id="export-button" type="button">导出数据</button>
+      <button class="text-button" id="import-button" type="button">导入数据</button>
+      <input id="import-input" type="file" accept="application/json,.json" hidden>
+      <span class="save-note" id="save-note">完成状态仅保存在这台设备</span>
+    </div>
+
+    <section class="onboarding" id="onboarding" hidden>
+      <span class="onboarding-mark">私</span>
+      <div>
+        <h2>个人数据尚未导入</h2>
+        <p>这个公开网页不含任何生活信息。选择 Codex 生成的数据更新 JSON 后，内容只会保存在当前手机浏览器中。</p>
+      </div>
+      <button class="onboarding-button" id="onboarding-import" type="button">选择 JSON</button>
+    </section>
+
+    <section class="dashboard-section timeline-section" aria-labelledby="timeline-heading">
+      <div class="section-heading">
+        <div><span class="section-number">01</span><h2 id="timeline-heading">今日时间轴</h2></div>
+        <p>按今天的节奏，一件一件来。</p>
+      </div>
+      <div id="timeline-list" class="timeline-list"></div>
+    </section>
+
+    <section class="dashboard-section" aria-labelledby="tasks-heading">
+      <div class="section-heading">
+        <div><span class="section-number">02</span><h2 id="tasks-heading">今日任务池</h2></div>
+        <p>还没有安排精确时间的事项。</p>
+      </div>
+      <div id="task-list" class="task-list"></div>
+    </section>
+
+    <section class="dashboard-section" aria-labelledby="habits-heading">
+      <div class="section-heading">
+        <div><span class="section-number">03</span><h2 id="habits-heading">习惯打卡</h2></div>
+        <p>重复的小事，也值得被看见。</p>
+      </div>
+      <div id="habit-list" class="habit-list"></div>
+    </section>
+
+    <section class="dashboard-section" aria-labelledby="projects-heading">
+      <div class="section-heading">
+        <div><span class="section-number">04</span><h2 id="projects-heading">项目总览</h2></div>
+        <p>长期推进的事情集中在这里。</p>
+      </div>
+      <div id="project-list" class="project-list"></div>
+    </section>
+
+    <footer>数据留在浏览器中 · 生活按自己的节奏展开</footer>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="dashboard-data.js"></script>
+  <script>
+    (() => {
+      "use strict";
+
+      const STATUS_DONE = "completed";
+      let data = window.DASHBOARD_DATA;
+      const importedKey = "personal-dashboard:imported-data";
+
+      try {
+        const imported = JSON.parse(localStorage.getItem(importedKey) || "null");
+        if (imported && (imported.contentRevision || 0) >= (data.contentRevision || 0)) data = imported;
+      } catch (_) {}
+
+      const greeting = pickGreeting();
+
+      let stateKey = `personal-dashboard:state:${data.date}`;
+      const habitHistoryKey = "personal-dashboard:habit-history";
+      let state = loadState();
+      let habitHistory = loadHabitHistory();
+
+      function loadState() {
+        try {
+          const saved = JSON.parse(localStorage.getItem(stateKey) || "null");
+          return saved && typeof saved === "object"
+            ? { tasks: saved.tasks || {}, habits: saved.habits || {} }
+            : { tasks: {}, habits: {} };
+        } catch (_) {
+          return { tasks: {}, habits: {} };
+        }
+      }
+
+      function saveState(message = "已保存") {
+        localStorage.setItem(stateKey, JSON.stringify(state));
+        showToast(message);
+      }
+
+      function loadHabitHistory() {
+        try {
+          const saved = JSON.parse(localStorage.getItem(habitHistoryKey) || "null");
+          return saved && typeof saved === "object" ? saved : {};
+        } catch (_) {
+          return {};
+        }
+      }
+
+      function saveHabitHistory(message) {
+        localStorage.setItem(habitHistoryKey, JSON.stringify(habitHistory));
+        showToast(message);
+      }
+
+      function habitRecord(habitId) {
+        const dates = Array.isArray(habitHistory[habitId]) ? habitHistory[habitId] : [];
+        const dateSet = new Set(dates);
+        const current = new Date(`${data.date}T00:00:00`);
+        const dayFromMonday = (current.getDay() + 6) % 7;
+        const weekStart = new Date(current);
+        weekStart.setDate(current.getDate() - dayFromMonday);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 7);
+        const weekCount = dates.filter((dateText) => {
+          const date = new Date(`${dateText}T00:00:00`);
+          return date >= weekStart && date < weekEnd;
+        }).length;
+        let streak = 0;
+        const cursor = new Date(current);
+        if (!dateSet.has(data.date)) cursor.setDate(cursor.getDate() - 1);
+        while (dateSet.has(toDateKey(cursor))) {
+          streak += 1;
+          cursor.setDate(cursor.getDate() - 1);
+        }
+        return { done: dateSet.has(data.date), weekCount, streak };
+      }
+
+      function toDateKey(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      }
+
+      function taskDone(taskId) {
+        if (Object.prototype.hasOwnProperty.call(state.tasks, taskId)) return state.tasks[taskId];
+        const task = data.tasks.find((item) => item.id === taskId);
+        return task ? task.status === STATUS_DONE : false;
+      }
+
+      function formatDate(dateText) {
+        const date = new Date(`${dateText}T00:00:00`);
+        return new Intl.DateTimeFormat("zh-CN", {
+          year: "numeric", month: "long", day: "numeric", weekday: "long"
+        }).format(date);
+      }
+
+      function formatLunarDate(dateText) {
+        try {
+          const date = new Date(`${dateText}T00:00:00`);
+          const parts = new Intl.DateTimeFormat("zh-CN-u-ca-chinese", {
+            year: "numeric", month: "long", day: "numeric"
+          }).formatToParts(date);
+          const value = (type) => parts.find((part) => part.type === type)?.value || "";
+          const yearName = value("yearName");
+          const month = value("month");
+          const day = Number(value("day"));
+          if (!yearName || !month || !day) throw new Error("Lunar date parts unavailable");
+          return `农历 ${yearName}年${month}${lunarDayName(day)}`;
+        } catch (_) {
+          return "农历日期暂不可用";
+        }
+      }
+
+      function lunarDayName(day) {
+        const digits = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
+        if (day <= 10) return `初${digits[day]}`;
+        if (day < 20) return `十${digits[day - 10]}`;
+        if (day === 20) return "二十";
+        if (day < 30) return `廿${digits[day - 20]}`;
+        return "三十";
+      }
+
+      function pickGreeting() {
+        const greetings = Array.isArray(data.greetings) ? data.greetings : [];
+        if (!greetings.length) {
+          return { language: "中文", original: "今天也按自己的节奏来。", translation: "" };
+        }
+        return greetings[Math.floor(Math.random() * greetings.length)];
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>'"]/g, (char) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+        })[char]);
+      }
+
+      function checkbox(taskId, label) {
+        const checked = taskDone(taskId);
+        return `<button class="check-button${checked ? " is-checked" : ""}" type="button" data-task-id="${escapeHtml(taskId)}" aria-label="${checked ? "标记为未完成" : "标记为完成"}：${escapeHtml(label)}" aria-pressed="${checked}"><span></span></button>`;
+      }
+
+      function renderTimeline() {
+        const root = document.getElementById("timeline-list");
+        if (!data.timeline.length) {
+          root.innerHTML = emptyState("今天还没有安排时间轴事项");
+          return;
+        }
+        root.innerHTML = data.timeline.map((item) => {
+          const done = taskDone(item.taskId);
+          const project = data.projects.find((entry) => entry.id === item.projectId);
+          const details = item.details && item.details.length
+            ? `<ul class="detail-list">${item.details.map((detail) => `<li>${escapeHtml(detail)}</li>`).join("")}</ul>` : "";
+          return `<article class="timeline-item${done ? " is-complete" : ""}">
+            <div class="time-label">${escapeHtml(item.timeLabel || "待安排")}</div>
+            <div class="timeline-marker"></div>
+            <div class="timeline-content">
+              <div class="item-topline">
+                <div><h3>${escapeHtml(item.title)}</h3>${item.location ? `<p class="location">${escapeHtml(item.location)}</p>` : ""}</div>
+                ${checkbox(item.taskId, item.title)}
+              </div>
+              <div class="meta-row">
+                ${project ? `<span>${escapeHtml(project.name)}</span>` : ""}
+                <span>${item.duration ? `预计 ${escapeHtml(item.duration)}` : "时长未设置"}</span>
+                <span>${done ? "已完成" : "待完成"}</span>
+              </div>${details}
+            </div>
+          </article>`;
+        }).join("");
+      }
+
+      function renderTasks() {
+        const root = document.getElementById("task-list");
+        const unscheduled = data.tasks.filter((task) => !task.scheduled && task.status !== "cancelled");
+        if (!unscheduled.length) {
+          root.innerHTML = emptyState("今天没有待安排的任务");
+          return;
+        }
+        root.innerHTML = unscheduled.map((task) => {
+          const done = taskDone(task.id);
+          return `<article class="task-item${done ? " is-complete" : ""}">
+            ${checkbox(task.id, task.title)}
+            <div><h3>${escapeHtml(task.title)}</h3><p>优先级 · ${escapeHtml(task.priority || "未设置")}</p></div>
+            <span class="task-status">${done ? "已完成" : "待安排"}</span>
+          </article>`;
+        }).join("");
+      }
+
+      function renderHabits() {
+        const root = document.getElementById("habit-list");
+        if (!data.habits.length) {
+          root.innerHTML = emptyState("还没有添加需要持续打卡的习惯");
+          return;
+        }
+        root.innerHTML = data.habits.map((habit) => {
+          const record = habitRecord(habit.id);
+          const target = habit.targetPerWeek ? ` / ${habit.targetPerWeek}` : "";
+          const context = [habit.frequency, habit.timeLabel].filter(Boolean).join(" · ");
+          return `<article class="habit-item">
+            <div><h3>${escapeHtml(habit.name)}</h3><p>${escapeHtml(context)}</p></div>
+            <div class="habit-stats"><span>本周 ${record.weekCount || 0}${target} 次</span><span>连续 ${record.streak || 0} 天</span></div>
+            <button class="habit-button${record.done ? " is-checked" : ""}" type="button" data-habit-id="${escapeHtml(habit.id)}">${record.done ? "今日已打卡" : "今日打卡"}</button>
+          </article>`;
+        }).join("");
+      }
+
+      function renderProjects() {
+        const root = document.getElementById("project-list");
+        if (!data.projects.length) {
+          root.innerHTML = emptyState("目前没有记录长期项目");
+          return;
+        }
+        root.innerHTML = data.projects.map((project, index) => {
+          const next = data.tasks.find((task) => task.id === project.nextTaskId);
+          const progress = Number.isFinite(project.progress)
+            ? `<div class="project-progress"><span style="width:${Math.max(0, Math.min(100, project.progress))}%"></span></div><small>${project.progress}%</small>`
+            : `<span class="stage">${escapeHtml(project.stage)}</span>`;
+          return `<article class="project-item tone-${index % 4}">
+            <div class="project-title"><h3>${escapeHtml(project.name)}</h3>${progress}</div>
+            <dl><div><dt>下一步</dt><dd>${next ? escapeHtml(next.title) : "未设置"}</dd></div><div><dt>截止时间</dt><dd>${escapeHtml(project.deadline || "未设置")}</dd></div><div><dt>关联任务</dt><dd>${(project.taskIds || []).length} 项</dd></div></dl>
+          </article>`;
+        }).join("");
+      }
+
+      function emptyState(text) {
+        return `<div class="empty-state"><span>—</span><p>${escapeHtml(text)}</p></div>`;
+      }
+
+      function renderSummary() {
+        const active = data.tasks.filter((task) => task.status !== "cancelled");
+        const completed = active.filter((task) => taskDone(task.id)).length;
+        const percent = active.length ? Math.round(completed / active.length * 100) : 0;
+        document.getElementById("summary-count").textContent = `${completed} / ${active.length}`;
+        document.getElementById("progress-fill").style.width = `${percent}%`;
+      }
+
+      function render() {
+        document.getElementById("date-label").textContent = formatDate(data.date);
+        document.getElementById("lunar-label").textContent = formatLunarDate(data.date);
+        document.getElementById("greeting").innerHTML = `<span class="greeting-language">${escapeHtml(greeting.language)}</span><span class="greeting-original">${escapeHtml(greeting.original)}</span>${greeting.translation ? `<span class="greeting-translation">${escapeHtml(greeting.translation)}</span>` : ""}`;
+        const hasPersonalData = data.tasks.length || data.timeline.length || data.habits.length || data.projects.length;
+        document.getElementById("onboarding").hidden = Boolean(hasPersonalData);
+        renderTimeline(); renderTasks(); renderHabits(); renderProjects(); renderSummary();
+      }
+
+      function toggleTask(taskId) {
+        state.tasks[taskId] = !taskDone(taskId);
+        saveState(state.tasks[taskId] ? "已标记完成" : "已恢复为待完成");
+        render();
+      }
+
+      function toggleHabit(habitId) {
+        const dates = new Set(Array.isArray(habitHistory[habitId]) ? habitHistory[habitId] : []);
+        const done = !dates.has(data.date);
+        if (done) dates.add(data.date); else dates.delete(data.date);
+        habitHistory[habitId] = Array.from(dates).sort();
+        saveHabitHistory(done ? "今日习惯已打卡" : "已取消今日打卡");
+        renderHabits();
+      }
+
+      function showToast(message) {
+        const toast = document.getElementById("toast");
+        toast.textContent = message;
+        toast.classList.add("is-visible");
+        clearTimeout(showToast.timer);
+        showToast.timer = setTimeout(() => toast.classList.remove("is-visible"), 1800);
+      }
+
+      function exportData() {
+        const payload = { version: 2, exportedAt: new Date().toISOString(), data, state, habitHistory };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `personal-dashboard-${data.date}.json`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 0);
+        showToast("数据已导出");
+      }
+
+      async function importData(file) {
+        try {
+          const payload = JSON.parse(await file.text());
+          if (!payload || !payload.data || !Array.isArray(payload.data.tasks) || !Array.isArray(payload.data.timeline) || !Array.isArray(payload.data.habits) || !Array.isArray(payload.data.projects)) {
+            throw new Error("文件缺少必要的看板数据");
+          }
+          const previousDate = data.date;
+          const hasTaskState = payload.state && typeof payload.state === "object";
+          const hasHabitHistory = payload.habitHistory && typeof payload.habitHistory === "object";
+          data = payload.data;
+          stateKey = `personal-dashboard:state:${data.date}`;
+          if (hasTaskState) {
+            state = payload.state;
+          } else if (data.date !== previousDate) {
+            state = loadState();
+          }
+          state.tasks ||= {}; state.habits ||= {};
+          if (hasHabitHistory) habitHistory = payload.habitHistory;
+          if (!hasHabitHistory && hasTaskState) {
+            Object.entries(state.habits).forEach(([habitId, record]) => {
+              if (record && record.done) habitHistory[habitId] = [data.date];
+            });
+          }
+          localStorage.setItem(importedKey, JSON.stringify(data));
+          localStorage.setItem(`personal-dashboard:state:${data.date}`, JSON.stringify(state));
+          localStorage.setItem(habitHistoryKey, JSON.stringify(habitHistory));
+          render();
+          showToast(hasTaskState || hasHabitHistory ? "完整数据恢复成功" : "内容已更新，完成记录已保留");
+        } catch (error) {
+          showToast(`导入失败：${error.message}`);
+        }
+      }
+
+      document.addEventListener("click", (event) => {
+        const taskButton = event.target.closest("[data-task-id]");
+        if (taskButton) toggleTask(taskButton.dataset.taskId);
+        const habitButton = event.target.closest("[data-habit-id]");
+        if (habitButton) toggleHabit(habitButton.dataset.habitId);
+      });
+      document.getElementById("export-button").addEventListener("click", exportData);
+      document.getElementById("import-button").addEventListener("click", () => document.getElementById("import-input").click());
+      document.getElementById("onboarding-import").addEventListener("click", () => document.getElementById("import-input").click());
+      document.getElementById("import-input").addEventListener("change", (event) => {
+        const file = event.target.files[0];
+        if (file) importData(file);
+        event.target.value = "";
+      });
+
+      render();
+
+      if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+        navigator.serviceWorker.register("./sw.js").catch(() => {});
+      }
+    })();
+  </script>
+</body>
+</html>
