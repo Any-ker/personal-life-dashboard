@@ -45,7 +45,7 @@
     <section class="dashboard-section timeline-section" aria-labelledby="timeline-heading">
       <div class="section-heading">
         <div><span class="section-number">01</span><h2 id="timeline-heading">今日时间轴</h2></div>
-        <p>按今天的节奏，一件一件来。</p>
+        <div class="section-tools"><p>按今天的节奏，一件一件来。</p><button class="add-entry-button" type="button" data-add-kind="timeline">＋ 添加日程</button></div>
       </div>
       <div id="timeline-list" class="timeline-list"></div>
     </section>
@@ -53,7 +53,7 @@
     <section class="dashboard-section" aria-labelledby="tasks-heading">
       <div class="section-heading">
         <div><span class="section-number">02</span><h2 id="tasks-heading">今日任务池</h2></div>
-        <p>还没有安排精确时间的事项。</p>
+        <div class="section-tools"><p>还没有安排精确时间的事项。</p><button class="add-entry-button" type="button" data-add-kind="task">＋ 添加任务</button></div>
       </div>
       <div id="task-list" class="task-list"></div>
     </section>
@@ -61,15 +61,19 @@
     <section class="dashboard-section" aria-labelledby="habits-heading">
       <div class="section-heading">
         <div><span class="section-number">03</span><h2 id="habits-heading">习惯打卡</h2></div>
-        <p>重复的小事，也值得被看见。</p>
+        <div class="section-tools"><p>重复的小事，也值得被看见。</p><button class="add-entry-button" type="button" data-add-kind="habit">＋ 添加习惯</button></div>
       </div>
       <div id="habit-list" class="habit-list"></div>
+      <div class="habit-week-panel" aria-labelledby="habit-week-heading">
+        <div class="habit-week-title"><h3 id="habit-week-heading">近一周安排</h3><p>圆点表示计划执行，勾选表示已完成。</p></div>
+        <div id="habit-week-chart" class="habit-week-chart"></div>
+      </div>
     </section>
 
     <section class="dashboard-section" aria-labelledby="projects-heading">
       <div class="section-heading">
         <div><span class="section-number">04</span><h2 id="projects-heading">项目总览</h2></div>
-        <p>长期推进的事情集中在这里。</p>
+        <div class="section-tools"><p>长期推进的事情集中在这里。</p><button class="add-entry-button" type="button" data-add-kind="project">＋ 添加项目</button></div>
       </div>
       <div id="project-list" class="project-list"></div>
     </section>
@@ -78,6 +82,29 @@
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <dialog class="entry-dialog" id="entry-dialog">
+    <form class="entry-form" id="entry-form">
+      <input id="entry-kind" type="hidden">
+      <header class="entry-form-header">
+        <div><p id="entry-kicker">添加内容</p><h2 id="entry-title">添加任务</h2></div>
+        <button class="dialog-close" type="button" id="dialog-close" aria-label="关闭">×</button>
+      </header>
+      <p class="entry-help" id="entry-help"></p>
+      <div class="form-grid">
+        <label class="field field-wide"><span id="entry-name-label">事情 <em>必填</em></span><input id="entry-name" type="text" maxlength="80" required placeholder="用行动动词描述要做的事"></label>
+        <label class="field" id="field-date"><span>日期 <small>选填</small></span><input id="entry-date" type="date"></label>
+        <label class="field" id="field-time"><span>时间 <small>选填</small></span><input id="entry-time" type="time"></label>
+        <label class="field" id="field-location"><span>地点 <small>选填</small></span><input id="entry-location" type="text" maxlength="80" placeholder="例如：社区医院"></label>
+        <label class="field" id="field-duration"><span>预计时长 <small>选填</small></span><input id="entry-duration" type="text" maxlength="30" placeholder="例如：30 分钟"></label>
+        <label class="field" id="field-project"><span>所属项目 <small>选填</small></span><select id="entry-project"><option value="">不关联项目</option></select></label>
+        <label class="field field-wide is-hidden" id="field-frequency"><span>执行频率 <em>必填</em></span><input id="entry-frequency" type="text" maxlength="40" placeholder="例如：每日、每周 2 次、每 3 天"></label>
+        <label class="field is-hidden" id="field-stage"><span>当前阶段 <small>选填</small></span><select id="entry-stage"><option>构思中</option><option selected>刚刚开始</option><option>推进中</option><option>等待反馈</option><option>暂时搁置</option><option>已完成</option></select></label>
+        <label class="field is-hidden" id="field-deadline"><span>截止日期 <small>选填</small></span><input id="entry-deadline" type="date"></label>
+        <label class="field field-wide"><span>注意事项 <small>选填</small></span><textarea id="entry-notes" rows="3" maxlength="240" placeholder="需要携带的物品、准备事项或其他提醒"></textarea></label>
+      </div>
+      <footer class="entry-actions"><button class="form-cancel" type="button" id="form-cancel">取消</button><button class="form-submit" type="submit">生成内容</button></footer>
+    </form>
+  </dialog>
   <script src="dashboard-data.js"></script>
   <script>
     (() => {
@@ -86,11 +113,16 @@
       const STATUS_DONE = "completed";
       let data = window.DASHBOARD_DATA;
       const importedKey = "personal-dashboard:imported-data";
+      const customDataKey = "personal-dashboard:custom-data:v1";
+      const projectTaskStateKey = "personal-dashboard:project-task-state";
 
       try {
         const imported = JSON.parse(localStorage.getItem(importedKey) || "null");
         if (imported && (imported.contentRevision || 0) >= (data.contentRevision || 0)) data = imported;
       } catch (_) {}
+
+      let customData = loadCustomData();
+      applyCustomData();
 
       const greeting = pickGreeting();
 
@@ -98,6 +130,43 @@
       const habitHistoryKey = "personal-dashboard:habit-history";
       let state = loadState();
       let habitHistory = loadHabitHistory();
+      let projectTaskState = loadJsonObject(projectTaskStateKey);
+
+      function loadJsonObject(key) {
+        try {
+          const saved = JSON.parse(localStorage.getItem(key) || "null");
+          return saved && typeof saved === "object" ? saved : {};
+        } catch (_) {
+          return {};
+        }
+      }
+
+      function loadCustomData() {
+        const saved = loadJsonObject(customDataKey);
+        return {
+          timeline: Array.isArray(saved.timeline) ? saved.timeline : [],
+          tasks: Array.isArray(saved.tasks) ? saved.tasks : [],
+          habits: Array.isArray(saved.habits) ? saved.habits : [],
+          projects: Array.isArray(saved.projects) ? saved.projects : []
+        };
+      }
+
+      function mergeById(base, additions) {
+        const merged = new Map(base.map((item) => [item.id, item]));
+        additions.forEach((item) => { if (!merged.has(item.id)) merged.set(item.id, item); });
+        return Array.from(merged.values());
+      }
+
+      function applyCustomData() {
+        data.timeline = mergeById(data.timeline || [], customData.timeline);
+        data.tasks = mergeById(data.tasks || [], customData.tasks);
+        data.habits = mergeById(data.habits || [], customData.habits);
+        data.projects = mergeById(data.projects || [], customData.projects);
+      }
+
+      function saveCustomData() {
+        localStorage.setItem(customDataKey, JSON.stringify(customData));
+      }
 
       function loadState() {
         try {
@@ -129,10 +198,10 @@
         showToast(message);
       }
 
-      function habitRecord(habitId) {
+      function habitRecord(habitId, referenceDate = data.date) {
         const dates = Array.isArray(habitHistory[habitId]) ? habitHistory[habitId] : [];
         const dateSet = new Set(dates);
-        const current = new Date(`${data.date}T00:00:00`);
+        const current = new Date(`${referenceDate}T00:00:00`);
         const dayFromMonday = (current.getDay() + 6) % 7;
         const weekStart = new Date(current);
         weekStart.setDate(current.getDate() - dayFromMonday);
@@ -144,12 +213,12 @@
         }).length;
         let streak = 0;
         const cursor = new Date(current);
-        if (!dateSet.has(data.date)) cursor.setDate(cursor.getDate() - 1);
+        if (!dateSet.has(referenceDate)) cursor.setDate(cursor.getDate() - 1);
         while (dateSet.has(toDateKey(cursor))) {
           streak += 1;
           cursor.setDate(cursor.getDate() - 1);
         }
-        return { done: dateSet.has(data.date), weekCount, streak };
+        return { done: dateSet.has(referenceDate), weekCount, streak };
       }
 
       function toDateKey(date) {
@@ -160,8 +229,9 @@
       }
 
       function taskDone(taskId) {
-        if (Object.prototype.hasOwnProperty.call(state.tasks, taskId)) return state.tasks[taskId];
         const task = data.tasks.find((item) => item.id === taskId);
+        if (task && task.projectId && Object.prototype.hasOwnProperty.call(projectTaskState, taskId)) return projectTaskState[taskId];
+        if (Object.prototype.hasOwnProperty.call(state.tasks, taskId)) return state.tasks[taskId];
         return task ? task.status === STATUS_DONE : false;
       }
 
@@ -228,6 +298,7 @@
           const project = data.projects.find((entry) => entry.id === item.projectId);
           const details = item.details && item.details.length
             ? `<ul class="detail-list">${item.details.map((detail) => `<li>${escapeHtml(detail)}</li>`).join("")}</ul>` : "";
+          const notes = item.notes ? `<p class="item-notes">注意 · ${escapeHtml(item.notes)}</p>` : "";
           return `<article class="timeline-item${done ? " is-complete" : ""}">
             <div class="time-label">${escapeHtml(item.timeLabel || "待安排")}</div>
             <div class="timeline-marker"></div>
@@ -240,7 +311,7 @@
                 ${project ? `<span>${escapeHtml(project.name)}</span>` : ""}
                 <span>${item.duration ? `预计 ${escapeHtml(item.duration)}` : "时长未设置"}</span>
                 <span>${done ? "已完成" : "待完成"}</span>
-              </div>${details}
+              </div>${details}${notes}
             </div>
           </article>`;
         }).join("");
@@ -248,7 +319,7 @@
 
       function renderTasks() {
         const root = document.getElementById("task-list");
-        const unscheduled = data.tasks.filter((task) => !task.scheduled && task.status !== "cancelled");
+        const unscheduled = data.tasks.filter((task) => !task.scheduled && task.status !== "cancelled" && isTaskForToday(task));
         if (!unscheduled.length) {
           root.innerHTML = emptyState("今天没有待安排的任务");
           return;
@@ -257,28 +328,78 @@
           const done = taskDone(task.id);
           return `<article class="task-item${done ? " is-complete" : ""}">
             ${checkbox(task.id, task.title)}
-            <div><h3>${escapeHtml(task.title)}</h3><p>优先级 · ${escapeHtml(task.priority || "未设置")}</p></div>
+            <div><h3>${escapeHtml(task.title)}</h3><p>${task.date ? `${escapeHtml(formatProjectDate(task.date))} · ` : ""}${task.location ? `${escapeHtml(task.location)} · ` : ""}优先级 · ${escapeHtml(task.priority || "未设置")}</p>${task.notes ? `<small class="task-note">注意 · ${escapeHtml(task.notes)}</small>` : ""}</div>
             <span class="task-status">${done ? "已完成" : "待安排"}</span>
           </article>`;
         }).join("");
+      }
+
+      function isTaskForToday(task) {
+        if (task.today === false) return false;
+        return !task.date || task.date === data.date;
       }
 
       function renderHabits() {
         const root = document.getElementById("habit-list");
         if (!data.habits.length) {
           root.innerHTML = emptyState("还没有添加需要持续打卡的习惯");
+          renderHabitWeek();
           return;
         }
         root.innerHTML = data.habits.map((habit) => {
           const record = habitRecord(habit.id);
           const target = habit.targetPerWeek ? ` / ${habit.targetPerWeek}` : "";
-          const context = [habit.frequency, habit.timeLabel].filter(Boolean).join(" · ");
+          const context = [habit.frequency, habit.timeLabel, habit.location].filter(Boolean).join(" · ");
           return `<article class="habit-item">
-            <div><h3>${escapeHtml(habit.name)}</h3><p>${escapeHtml(context)}</p></div>
+            <div><h3>${escapeHtml(habit.name)}</h3><p>${escapeHtml(context)}</p>${habit.notes ? `<small class="habit-note">注意 · ${escapeHtml(habit.notes)}</small>` : ""}</div>
             <div class="habit-stats"><span>本周 ${record.weekCount || 0}${target} 次</span><span>连续 ${record.streak || 0} 天</span></div>
             <button class="habit-button${record.done ? " is-checked" : ""}" type="button" data-habit-id="${escapeHtml(habit.id)}">${record.done ? "今日已打卡" : "今日打卡"}</button>
           </article>`;
         }).join("");
+        renderHabitWeek();
+      }
+
+      function sevenDayWindow() {
+        const start = new Date(`${data.date}T00:00:00`);
+        return Array.from({ length: 7 }, (_, index) => {
+          const date = new Date(start);
+          date.setDate(start.getDate() + index);
+          return { date, key: toDateKey(date) };
+        });
+      }
+
+      function isHabitScheduled(habit, dateKey) {
+        if (habit.targetPerWeek) return false;
+        if (/每日|每天/.test(habit.frequency || "")) return true;
+        if (habit.scheduleAnchor && habit.intervalDays) {
+          const current = new Date(`${dateKey}T00:00:00`);
+          const anchor = new Date(`${habit.scheduleAnchor}T00:00:00`);
+          const diff = Math.round((current - anchor) / 86400000);
+          return diff >= 0 && diff % habit.intervalDays === 0;
+        }
+        return false;
+      }
+
+      function renderHabitWeek() {
+        const root = document.getElementById("habit-week-chart");
+        if (!data.habits.length) {
+          root.innerHTML = emptyState("添加习惯后，这里会生成近一周安排");
+          return;
+        }
+        const days = sevenDayWindow();
+        const header = `<div class="habit-chart-corner">习惯</div>${days.map(({ date, key }) => `<div class="habit-chart-day${key === data.date ? " is-today" : ""}"><strong>${new Intl.DateTimeFormat("zh-CN", { weekday: "short" }).format(date)}</strong><span>${date.getMonth() + 1}.${date.getDate()}</span></div>`).join("")}`;
+        const rows = data.habits.map((habit) => {
+          const cells = days.map(({ key }) => {
+            const scheduled = isHabitScheduled(habit, key);
+            const flexible = Boolean(habit.targetPerWeek);
+            const done = habitRecord(habit.id, key).done;
+            if (!scheduled && !flexible) return `<span class="habit-chart-cell is-off" aria-label="${escapeHtml(key)} 无安排">—</span>`;
+            const label = done ? "✓" : flexible ? "○" : "●";
+            return `<button class="habit-chart-cell${scheduled ? " is-scheduled" : " is-flexible"}${done ? " is-done" : ""}" type="button" data-habit-id="${escapeHtml(habit.id)}" data-habit-date="${key}" aria-label="${escapeHtml(habit.name)} ${key} ${done ? "已完成" : flexible ? "可自由安排" : "计划执行"}">${label}</button>`;
+          }).join("");
+          return `<div class="habit-chart-name"><strong>${escapeHtml(habit.name)}</strong><span>${escapeHtml(habit.frequency)}</span></div>${cells}`;
+        }).join("");
+        root.innerHTML = `<div class="habit-chart-grid">${header}${rows}</div>`;
       }
 
       function renderProjects() {
@@ -289,14 +410,31 @@
         }
         root.innerHTML = data.projects.map((project, index) => {
           const next = data.tasks.find((task) => task.id === project.nextTaskId);
+          const linkedIds = new Set(project.taskIds || []);
+          const projectTasks = data.tasks
+            .filter((task) => linkedIds.has(task.id) || task.projectId === project.id)
+            .sort((a, b) => `${a.date || "9999"} ${a.timeLabel || ""}`.localeCompare(`${b.date || "9999"} ${b.timeLabel || ""}`));
           const progress = Number.isFinite(project.progress)
             ? `<div class="project-progress"><span style="width:${Math.max(0, Math.min(100, project.progress))}%"></span></div><small>${project.progress}%</small>`
             : `<span class="stage">${escapeHtml(project.stage)}</span>`;
+          const flow = projectTasks.length ? `<div class="project-flow"><h4>推进流程</h4>${projectTasks.map((task) => {
+            const done = taskDone(task.id);
+            const when = [task.date ? formatProjectDate(task.date) : "日期待安排", task.timeLabel].filter(Boolean).join(" · ");
+            return `<div class="project-flow-item${done ? " is-complete" : ""}">
+              ${checkbox(task.id, task.title)}
+              <div class="project-flow-copy"><p>${escapeHtml(when)}</p><h5>${escapeHtml(task.title)}</h5>${task.location ? `<span>${escapeHtml(task.location)}</span>` : ""}${task.notes ? `<small>注意 · ${escapeHtml(task.notes)}</small>` : ""}</div>
+            </div>`;
+          }).join("")}</div>` : "";
           return `<article class="project-item tone-${index % 4}">
-            <div class="project-title"><h3>${escapeHtml(project.name)}</h3>${progress}</div>
-            <dl><div><dt>下一步</dt><dd>${next ? escapeHtml(next.title) : "未设置"}</dd></div><div><dt>截止时间</dt><dd>${escapeHtml(project.deadline || "未设置")}</dd></div><div><dt>关联任务</dt><dd>${(project.taskIds || []).length} 项</dd></div></dl>
+            <div class="project-title"><h3>${escapeHtml(project.name)}</h3>${progress}</div>${project.notes ? `<p class="project-notes">${escapeHtml(project.notes)}</p>` : ""}
+            <dl><div><dt>下一步</dt><dd>${next ? escapeHtml(next.title) : "未设置"}</dd></div><div><dt>截止时间</dt><dd>${escapeHtml(project.deadline || "未设置")}</dd></div><div><dt>关联任务</dt><dd>${projectTasks.length} 项</dd></div></dl>${flow}
           </article>`;
         }).join("");
+      }
+
+      function formatProjectDate(dateText) {
+        const date = new Date(`${dateText}T00:00:00`);
+        return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", weekday: "short" }).format(date);
       }
 
       function emptyState(text) {
@@ -304,7 +442,7 @@
       }
 
       function renderSummary() {
-        const active = data.tasks.filter((task) => task.status !== "cancelled");
+        const active = data.tasks.filter((task) => task.status !== "cancelled" && isTaskForToday(task));
         const completed = active.filter((task) => taskDone(task.id)).length;
         const percent = active.length ? Math.round(completed / active.length * 100) : 0;
         document.getElementById("summary-count").textContent = `${completed} / ${active.length}`;
@@ -321,18 +459,30 @@
       }
 
       function toggleTask(taskId) {
-        state.tasks[taskId] = !taskDone(taskId);
-        saveState(state.tasks[taskId] ? "已标记完成" : "已恢复为待完成");
+        const task = data.tasks.find((item) => item.id === taskId);
+        const done = !taskDone(taskId);
+        if (task && task.projectId) {
+          projectTaskState[taskId] = done;
+          localStorage.setItem(projectTaskStateKey, JSON.stringify(projectTaskState));
+          showToast(done ? "项目步骤已完成" : "项目步骤已恢复");
+        } else {
+          state.tasks[taskId] = done;
+          saveState(done ? "已标记完成" : "已恢复为待完成");
+        }
         render();
       }
 
       function toggleHabit(habitId) {
+        toggleHabitDate(habitId, data.date);
+      }
+
+      function toggleHabitDate(habitId, dateKey) {
         const dates = new Set(Array.isArray(habitHistory[habitId]) ? habitHistory[habitId] : []);
-        const done = !dates.has(data.date);
-        if (done) dates.add(data.date); else dates.delete(data.date);
+        const done = !dates.has(dateKey);
+        if (done) dates.add(dateKey); else dates.delete(dateKey);
         habitHistory[habitId] = Array.from(dates).sort();
-        saveHabitHistory(done ? "今日习惯已打卡" : "已取消今日打卡");
-        renderHabits();
+        saveHabitHistory(done ? "习惯已打卡" : "已取消打卡");
+        renderHabits(); renderSummary();
       }
 
       function showToast(message) {
@@ -344,7 +494,7 @@
       }
 
       function exportData() {
-        const payload = { version: 2, exportedAt: new Date().toISOString(), data, state, habitHistory };
+        const payload = { version: 3, exportedAt: new Date().toISOString(), data, state, habitHistory, projectTaskState, customData };
         const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
@@ -364,6 +514,16 @@
           const hasTaskState = payload.state && typeof payload.state === "object";
           const hasHabitHistory = payload.habitHistory && typeof payload.habitHistory === "object";
           data = payload.data;
+          if (payload.customData && typeof payload.customData === "object") {
+            customData = {
+              timeline: Array.isArray(payload.customData.timeline) ? payload.customData.timeline : [],
+              tasks: Array.isArray(payload.customData.tasks) ? payload.customData.tasks : [],
+              habits: Array.isArray(payload.customData.habits) ? payload.customData.habits : [],
+              projects: Array.isArray(payload.customData.projects) ? payload.customData.projects : []
+            };
+            saveCustomData();
+          }
+          applyCustomData();
           stateKey = `personal-dashboard:state:${data.date}`;
           if (hasTaskState) {
             state = payload.state;
@@ -372,6 +532,7 @@
           }
           state.tasks ||= {}; state.habits ||= {};
           if (hasHabitHistory) habitHistory = payload.habitHistory;
+          if (payload.projectTaskState && typeof payload.projectTaskState === "object") projectTaskState = payload.projectTaskState;
           if (!hasHabitHistory && hasTaskState) {
             Object.entries(state.habits).forEach(([habitId, record]) => {
               if (record && record.done) habitHistory[habitId] = [data.date];
@@ -380,6 +541,7 @@
           localStorage.setItem(importedKey, JSON.stringify(data));
           localStorage.setItem(`personal-dashboard:state:${data.date}`, JSON.stringify(state));
           localStorage.setItem(habitHistoryKey, JSON.stringify(habitHistory));
+          localStorage.setItem(projectTaskStateKey, JSON.stringify(projectTaskState));
           render();
           showToast(hasTaskState || hasHabitHistory ? "完整数据恢复成功" : "内容已更新，完成记录已保留");
         } catch (error) {
@@ -387,12 +549,122 @@
         }
       }
 
+      const entryConfigs = {
+        timeline: { kicker: "今日时间轴", title: "添加日程", help: "事情为必填；时间、地点、时长、所属项目和注意事项都可以稍后补充。" },
+        task: { kicker: "今日任务池", title: "添加任务", help: "适合今天要完成、但尚未确定精确时间的事情。" },
+        habit: { kicker: "习惯打卡", title: "添加习惯", help: "填写频率后，看板会生成近一周安排；基准日期默认是今天。" },
+        project: { kicker: "项目总览", title: "添加项目", help: "记录需要持续推进的事项；阶段和截止日期都可以不填。" }
+      };
+
+      function setFieldVisible(id, visible) {
+        document.getElementById(id).classList.toggle("is-hidden", !visible);
+      }
+
+      function openEntryDialog(kind) {
+        const config = entryConfigs[kind];
+        if (!config) return;
+        const form = document.getElementById("entry-form");
+        form.reset();
+        document.getElementById("entry-kind").value = kind;
+        document.getElementById("entry-kicker").textContent = config.kicker;
+        document.getElementById("entry-title").textContent = config.title;
+        document.getElementById("entry-help").textContent = config.help;
+        document.getElementById("entry-name-label").innerHTML = `${kind === "project" ? "项目名称" : kind === "habit" ? "习惯名称" : "事情"} <em>必填</em>`;
+        document.getElementById("entry-date").value = data.date;
+        const projectSelect = document.getElementById("entry-project");
+        projectSelect.innerHTML = `<option value="">不关联项目</option>${data.projects.map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`).join("")}`;
+        setFieldVisible("field-frequency", kind === "habit");
+        setFieldVisible("field-stage", kind === "project");
+        setFieldVisible("field-deadline", kind === "project");
+        setFieldVisible("field-date", kind !== "project");
+        setFieldVisible("field-time", kind !== "project");
+        setFieldVisible("field-location", kind !== "project");
+        setFieldVisible("field-duration", kind === "timeline" || kind === "task");
+        setFieldVisible("field-project", kind === "timeline" || kind === "task");
+        document.getElementById("entry-frequency").required = kind === "habit";
+        const dialog = document.getElementById("entry-dialog");
+        if (typeof dialog.showModal === "function") dialog.showModal(); else dialog.setAttribute("open", "");
+        setTimeout(() => document.getElementById("entry-name").focus(), 0);
+      }
+
+      function closeEntryDialog() {
+        const dialog = document.getElementById("entry-dialog");
+        if (typeof dialog.close === "function") dialog.close(); else dialog.removeAttribute("open");
+      }
+
+      function cadenceFromFrequency(frequency, anchor) {
+        const result = { scheduleAnchor: anchor || data.date };
+        const dayMatch = frequency.match(/每\s*(\d+)\s*天/);
+        const weekMatch = frequency.match(/每周\s*(\d+)/);
+        if (/每日|每天/.test(frequency)) result.intervalDays = 1;
+        else if (dayMatch) result.intervalDays = Number(dayMatch[1]);
+        else if (weekMatch) result.targetPerWeek = Number(weekMatch[1]);
+        return result;
+      }
+
+      function createEntry(event) {
+        event.preventDefault();
+        const kind = document.getElementById("entry-kind").value;
+        const name = document.getElementById("entry-name").value.trim();
+        if (!name) return;
+        const date = document.getElementById("entry-date").value || data.date;
+        const time = document.getElementById("entry-time").value;
+        const location = document.getElementById("entry-location").value.trim() || null;
+        const duration = document.getElementById("entry-duration").value.trim() || null;
+        const notes = document.getElementById("entry-notes").value.trim() || null;
+        const projectId = document.getElementById("entry-project").value || null;
+        const seed = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+        if (kind === "timeline" || kind === "task") {
+          const taskId = `custom-task-${seed}`;
+          const task = {
+            id: taskId, title: name, projectId, priority: "未设置", status: "pending",
+            scheduled: kind === "timeline", today: date === data.date, date, timeLabel: time || (kind === "timeline" ? "待安排" : null),
+            location, duration, notes
+          };
+          customData.tasks.push(task); data.tasks.push(task);
+          if (kind === "timeline") {
+            const label = date !== data.date ? `${date.slice(5).replace("-", ".")} ${time || "待安排"}` : time || "待安排";
+            const timelineItem = { id: `custom-timeline-${seed}`, taskId, timeLabel: label, title: name, projectId, duration, status: "pending", location, notes, details: [] };
+            customData.timeline.push(timelineItem); data.timeline.push(timelineItem);
+          }
+        } else if (kind === "habit") {
+          const frequency = document.getElementById("entry-frequency").value.trim();
+          if (!frequency) return;
+          const habit = {
+            id: `custom-habit-${seed}`, name, frequency, timeLabel: time || null, location, notes,
+            ...cadenceFromFrequency(frequency, date)
+          };
+          customData.habits.push(habit); data.habits.push(habit);
+        } else if (kind === "project") {
+          const project = {
+            id: `custom-project-${seed}`, name,
+            stage: document.getElementById("entry-stage").value || "刚刚开始",
+            nextTaskId: null, deadline: document.getElementById("entry-deadline").value || null,
+            taskIds: [], notes
+          };
+          customData.projects.push(project); data.projects.push(project);
+        }
+        saveCustomData();
+        closeEntryDialog();
+        render();
+        showToast("内容已生成并保存在这台设备");
+      }
+
       document.addEventListener("click", (event) => {
+        const addButton = event.target.closest("[data-add-kind]");
+        if (addButton) openEntryDialog(addButton.dataset.addKind);
         const taskButton = event.target.closest("[data-task-id]");
         if (taskButton) toggleTask(taskButton.dataset.taskId);
         const habitButton = event.target.closest("[data-habit-id]");
-        if (habitButton) toggleHabit(habitButton.dataset.habitId);
+        if (habitButton) {
+          if (habitButton.dataset.habitDate) toggleHabitDate(habitButton.dataset.habitId, habitButton.dataset.habitDate);
+          else toggleHabit(habitButton.dataset.habitId);
+        }
       });
+      document.getElementById("entry-form").addEventListener("submit", createEntry);
+      document.getElementById("dialog-close").addEventListener("click", closeEntryDialog);
+      document.getElementById("form-cancel").addEventListener("click", closeEntryDialog);
       document.getElementById("export-button").addEventListener("click", exportData);
       document.getElementById("import-button").addEventListener("click", () => document.getElementById("import-input").click());
       document.getElementById("onboarding-import").addEventListener("click", () => document.getElementById("import-input").click());
